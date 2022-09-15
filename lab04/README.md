@@ -245,8 +245,8 @@ met_avg[!is.na(wind.sp)] %>%
   stat_summary(fun.data = mean_sdl,geom = "errorbar")
 ```
 
-![](README_files/figure-gfm/unnamed-chunk-6-1.png)<!-- --> ##Step7.
-Generate a map of weather stations and show trend in relative humidity
+![](README_files/figure-gfm/unnamed-chunk-6-1.png)<!-- --> 
+## Step7.Generate a map of weather stations and show trend in relative humidity
 of top 10
 
 ``` r
@@ -310,7 +310,7 @@ rhmap
 Places with the Top10 highest relative humid are mainly located on the
 East side
 
-## Step8. 8. Use a ggplot extension
+## Step8. Use a ggplot extension
 
 In ggstance, you supply aesthetics in their natural order:
 
