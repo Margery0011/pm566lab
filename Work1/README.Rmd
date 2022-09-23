@@ -1,0 +1,367 @@
+---
+title: "Work1"
+author: "yutian"
+date: "9/7/2022"
+output: github_document
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignment Description
+
+
+Work with air pollution data from the U.S. Environmental Protection Agency (EPA). The EPA has a national monitoring network of air pollution sites that The primary question you will answer is whether daily concentrations of PM (particulate matter air pollution with aerodynamic diameter less than 2.5 m) have decreased in California over the last 15 years (from 2004 to 2019).
+
+
+
+```{r}
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(leaflet)
+library(lubridate)
+```
+
+# Step1. Read the data and Check them
+
+- After downloading 2004 and 2019 data for all sites in California from the EPA Air Quality Data website
+
+- Read in the data using data.table()
+
+```{r}
+pm2019 <- fread("pm2019.csv")
+pm2004 <- fread("pm2004.csv")
+```
+
+- For each of the two datasets, check the dimensions, headers, footers, variable names and variable types. 
+
+### Check for 2019
+```{r}
+dim(pm2019)
+```
+```{r}
+head(pm2019)
+```
+```{r}
+tail(pm2019)
+```
+```{r}
+str(pm2019)
+```
+
+Name data frame with the data at 2019 as "pm2019"
+In this data frame, there are 53156 observations and 20 variables,8 of them are charaters and others are numeric. 
+### 2004
+
+```{r}
+dim(pm2004)
+```
+```{r}
+head(pm2004)
+```
+```{r}
+tail(pm2004)
+```
+```{r}
+str(pm2004)
+```
+
+Name data frame with the data at 2004 as "pm2004"
+In this data frame, there are 19233 observations and 20 variables,8 of them are charaters and others are numeric. 
+
+```{r}
+colnames(pm2004) == colnames(pm2019)
+```
+
+```{r}
+library(janitor)
+compare_df_cols(pm2004, pm2019, return = "mismatch")
+```
+
+
+Data frame `pm2004` and `pm2019` have same variable names adn same variable types.
+
+
+-  Check for any data issues, particularly in the key variable we are analyzing. 
+
+### Remove negative values
+
+```{r}
+summary(pm2004)
+```
+```{r}
+summary(pm2019)
+```
+
+
+I found that there are some pf the Daily PM2.5 Concentration values are  negative which is unrealistic, therefore, we should remove them
+
+
+```{r}
+pm2004 <- pm2004[`Daily Mean PM2.5 Concentration` > 0]
+pm2019 <- pm2019[`Daily Mean PM2.5 Concentration` > 0]
+```
+
+```{r}
+mean(is.na(pm2019))
+mean(is.na(pm2004))
+```
+
+There are not missing values in both data frames.
+
+# Step2. Combine two datasets
+
+- Use the Date variable to create a new column for year, which will serve as an identifier.
+- Change the names of the key variables so that they are easier to refer to in your code.
+
+
+```{r -combine dataset and rename}
+pm <- rbind(pm2004, pm2019)
+pm <- mutate(pm, year = factor(rep(c(2004, 2019), c(nrow(pm2004), nrow(pm2019))))) 
+pm <- as_tibble(pm)
+pm <- pm %>%
+  rename(
+    pm25 = `Daily Mean PM2.5 Concentration`,
+    AQI = `DAILY_AQI_VALUE`,
+    lat = `SITE_LATITUDE`,
+    lon = `SITE_LONGITUDE`,
+    county = COUNTY
+  )
+```
+
+```{r -change Date format}
+pms <- pm$Date
+pm$Date<-format(mdy(pms), "%m-%d-%Y")
+pm$Date <-mdy(pm$Date)
+```
+
+Since the Date column is been identified as character instead of Date, we should change the format
+
+
+# Step3. Create a basic map 
+
+Use leaflet() that shows the locations of the sites (make sure to use different colors for each year). Summarize the spatial distribution of the monitoring sites.
+
+
+
+```{r}
+sites<- pm %>%
+  group_by(`Site Name`,year,lon,lat) %>%
+  summarise(avg_25=mean(pm25))
+```
+
+
+```{r}
+pal <- colorFactor(
+  palette = 'plasma',
+  domain = sites$year
+)
+leaflet(sites) %>% 
+  addProviderTiles('CartoDB.Positron') %>% 
+  addCircles(lat = sites$lat, lng = sites$lon, opacity = 1, fillOpacity = 1, radius = 40,color = ~pal(year)) %>%
+  addLegend("topright", pal = colorFactor(
+    palette = "plasma", domain = sites$year),values = sites$year,opacity = 1)
+
+```
+
+
+From this plot, it is obvious that sites were concentrated in the west, and at 2019, the monitored sites were more spread.  
+
+# Step4. Check and Explore the combined dataset
+
+
+- Check for any missing or implausible values of PM in the combined dataset. 
+
+We have already remove the negative values at step1.
+
+```{r}
+colSums(is.na(pm))
+```
+
+There are some missing values in the column CBSA_CODE, I will just remove them.
+
+```{r}
+pmf <- pm %>%
+  filter(!is.na(CBSA_CODE))
+```
+```{r}
+colSums(is.na(pmf))
+```
+
+
+- Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.
+
+
+### Check for countiesat 2004 and 2019
+
+```{r}
+pm %>%
+  filter(year==2004) %>%
+  distinct(county) %>%
+  nrow
+```
+
+```{r}
+pm %>%
+  filter(year==2019) %>%
+  distinct(county) %>%
+  nrow
+```
+
+At 2019, there were more counties monitored
+Only use the mutual counties
+
+```{r}
+pm_mc <- pm %>%
+  filter(pm$county %in% intersect(pm2004$COUNTY,pm2019$COUNTY))
+```
+
+```{r}
+pm_mc %>%
+  distinct(county) %>%
+  nrow
+```
+```{r}
+pm_mc$yday <- yday(pm_mc$Date)
+```
+
+### Check tge temporal patterns
+
+First, calculte the mean value od Daily PM2.5 concentration
+```{r}
+state <- pm_mc %>%
+  group_by(yday,year) %>%
+  summarise(avg_pm25=mean(pm25))
+```
+
+```{r}
+ggplot(state, aes(x=yday, y=avg_pm25,group=year,colour=year,linetype=year)) +
+  geom_point()+
+  geom_smooth(method = lm,col="black")+
+  xlab("Day of the year")+ ylab("PM2.5(ug/m3)")+
+  ggtitle("The value of PM2.5 each day at 2004 and 2019")
+  
+```
+
+From this figure, it can be seen that overall the value of PM2.5 was slightly increasing during 2019 while it was lower than it was in 2004 each day.
+
+# Step5. Data Visualization
+
+Explore the main question of interest at three different spatial levels. Create exploratory plots (e.g. boxplots, histograms, line plots) and summary statistics that best suit each level of data. Be sure to write up explanations of what you observe in these data.
+
+### State Level
+
+```{r}
+p <- ggplot(state, aes(year, avg_pm25))
+p + geom_boxplot(aes(colour = year)) +ggtitle("General patterns of average daily PM2.5 content at 2004 and 2019") + xlab("Year")+ylab("average daily PM22.5 content")
+```
+
+
+From this plot, it can be seen that the value of pm25 content in 2004 was generally higher than in 2019. 
+
+
+```{r}
+summary(pm2004$`Daily Mean PM2.5 Concentration`)
+```
+```{r}
+summary(pm2019$`Daily Mean PM2.5 Concentration`)
+```
+```{r}
+
+summary(state$avg_pm25)
+```
+```{r}
+pm_mc$month <- month(pm_mc$Date)
+```
+
+Below are the summary of PM2.5 Daily value concentration in each month at 2004 and 2019.
+From this summary, it can be seen that in 2004, the median values of PM2.5 daily concentration January, October and December were larger than others. In 2019, the standard deviation values were smaller generally compared with them in 2004.
+```{r}
+pm25 <-pm_mc$pm25
+```
+
+```{r}
+pm_mc %>% 
+  group_by(year,month) %>%
+  summarise_at(c("pm25"),list(avg = ~mean(pm25),median = ~median(pm25),min=~min(pm25),max=~max(pm25),sd = ~sd(pm25))) %>%
+  knitr::kable()
+```
+
+### County Level
+
+
+```{r}
+p <- ggplot(pm_mc, aes(county, pm25))
+p + geom_boxplot(aes(colour = year))+ ggtitle("PM2.5 at different counties at 2004 and 2019")+ylab("PM2.5")+xlab("County Name")+ coord_flip()
+```
+
+
+```{r}
+pm_mc %>% 
+  group_by(county,year) %>%
+  summarise_at(c("pm25"),list(avg = ~mean(pm25),median = ~median(pm25),min=~min(pm25),max=~max(pm25),sd = ~sd(pm25))) %>%
+  knitr::kable()
+```
+It can be seen from this summary that the Daily PM2.5 values varied most at Mariposa in 2019 and the most enormous Daily PM2.5 was also monitored at Mariposa in 2004. 
+
+### Site Level
+
+#### Remove rows with out site name 
+```{r}
+sum(pm$`Site Name` == "")
+```
+
+
+
+```{r}
+LAsites <-subset(pm_mc,pm_mc$county=='Los Angeles')
+sum(LAsites$`Site Name` == "")
+```
+
+
+
+```{r}
+LAsites <-subset(LAsites,LAsites$`Site Name`!='')
+sum(LAsites$`Site Name` == "")
+```
+
+
+```{r}
+LAsites  <- LAsites %>%
+  group_by(yday,year,`Site Name`) %>%
+  summarise(avg_pm25=mean(pm25))
+```
+
+```{r}
+length(unique(LAsites$`Site Name`))
+```
+```{r}
+ggplot(LAsites, aes(x=yday, y=avg_pm25,color=as.factor(year))) +
+  geom_line() +
+  labs(title="Temporal patterns of Daily PM2.5 in all sites",
+        x ="Day of the year", y = "PM2.5 (ug/m3)",
+        color = "Year")+facet_wrap(~`Site Name`,nrow = 5)
+```
+Here are the temporal patterns of Daily PM2.5 concentration of each site in Los Angeles. 
+Compoton, Glendora, Pico Rivera#2, Long Beach-Route 710 Near Road and Santa Clarita do not have the data at 2004
+
+IN Azusa, Glendora and Pico Rivera#2, the day with the largest PM2.5 concentration happened at around No.200 day and in Reseda, it happened at about No.300 Day
+```{r}
+pm_mc%>% 
+  filter(year == 2004) %>%
+  group_by(`Site Name`,year) %>%
+  summarise_at(c("pm25"),list(avg = ~mean(pm25),median = ~median(pm25),min=~min(pm25),max=~max(pm25),sd = ~sd(pm25))) %>%
+  knitr::kable()
+```
+
+
+```{r}
+pm_mc%>% 
+  filter(year == 2019) %>%
+  group_by(`Site Name`,year) %>%
+  summarise_at(c("pm25"),list(avg = ~mean(pm25),median = ~median(pm25),min=~min(pm25),max=~max(pm25),sd = ~sd(pm25))) %>%
+  knitr::kable()
+```
