@@ -1,0 +1,449 @@
+---
+title: "Assignment2"
+author: "yutian"
+date: "10/032022"
+output: github_document
+always_allow_html: true
+---
+
+Load libraries 
+```{r load libraries,message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(data.table)
+library(skimr)
+library(tidyr)
+```
+
+For this assignment, we will be analyzing data from USC’s Children’s Health Study. The learning objectives are to conduct data wrangling and visualize the data with key questions in mind.
+
+# **Data Wrangling**
+
+You will need to download two datasets from https://github.com/USCbiostats/data-science-data. The individual and regional CHS datasets in 01_chs. The individual data includes personal and health characteristics of children in 12 communities across Southern California. The regional data include air quality measurements at the community level. Once downloaded, you can merge these datasets using the location variable.
+
+# 1. Read in the data
+
+I have already downloaded the data sets from github, so I just read it from my local directory
+
+```{r read data}
+ind <- read_csv("../data-science-data/01_chs/chs_individual.csv")
+reg <- read_csv("../data-science-data/01_chs/chs_regional.csv")
+```
+
+
+
+### Merge the data 
+
+Since they have mutual column "townname", so merge them by it. 
+```{r merge}
+mer <- merge(ind,reg,by="townname")
+```
+
+### Check for rownumers to make sure there is not any duplicates 
+
+```{r chech for duplicates}
+nrow(ind) == nrow(mer)
+```
+
+After merging, there is no extra observations meaning there is not any duplicates
+
+
+# 2. Data Imputer
+
+
+### Load Library
+
+```{r load libries for imputing, message=FALSE}
+library(mice)
+library(missForest)
+library(Amelia)
+```
+
+### Visualize the missing values
+
+```{r visualize missing values}
+missmap(mer)
+```
+
+There are only 3% missing values, so I am going to impute some data.  
+
+## Impute  Data & Save it for use next time 
+
+This command `imputed_data <- mice(mer,m=3,maxit = 20,method = 'pmm',seed = 123)` will take some time to run, so after I ran it the first time, I saved it as `imputed_data.rds` which could be read later by `readRDS`
+
+- m = 3, which means to generate 3 filled data
+- maxit = 20, the number of iterations to generate filling data each time, here is 20 times
+- method = 'pmm', the continuous data described above adopts the method of Predictive Mean Matching
+
+
+```{r impute missing values and save it }
+## Impute missing values 
+
+#imputed_data <- mice(mer,m=3,maxit = 20,method = 'pmm',seed = 123) 
+
+## Save the imputed data
+#saveRDS(imputed_data,"imputed_data.rds")
+
+## Read the saved imputed data for use 
+imputed_data <- readRDS("imputed_data.rds")
+```
+
+```{r get complete data }
+# get complete data ( Select 2nd out of 3 filled data)
+completeData.2 <- mice::complete(imputed_data,2)
+```
+
+
+```{r check missing values in completeddata}
+sum(is.na(completeData.2))
+```
+
+After imputing data, there is no missing value 
+```{r }
+missmap(completeData.2)
+```
+
+
+```{r save completed data}
+
+## Save completed data with imputed data 
+
+#write.csv(completeData.2,"completeData.csv",row.names = FALSE,)
+
+## Read completed data with imputed data 
+completeData.2 <- read.csv("completeData.csv")
+```
+
+
+
+```{r check for essential factors }
+summary(completeData.2$bmi)
+summary(completeData.2$fev)
+summary(completeData.2$smoke)
+summary(completeData.2$gasstove)
+```
+
+There is not any missing value or implausible value, so we can use this data set for futher analysis.
+
+# 3. Create a new categorical variable named 'obseity_level'
+
+Create a new categorical variable named “obesity_level” using the BMI measurement (underweight BMI<14; normal BMI 14-22; overweight BMI 22-24; obese BMI>24). 
+
+```{r create obesity_level category}
+comptable <- as.data.table(completeData.2)
+comptable[, obesity_level := fifelse(bmi<14,"underweight",fifelse(bmi>=14 & bmi<22,"normal",fifelse(bmi>=22 & bmi <=24,"overweight","obese")))]
+```
+
+To make sure the variable is rightly coded, create a summary table that contains the minimum BMI, maximum BMI, and the total number of observations per category.
+
+```{r summary table of obesity_level}
+comptable %>%
+  group_by(obesity_level) %>%
+  summarise_at(c("bmi"),
+  list(count=~n(),min=~min(.),max = ~max(.))) %>%
+  knitr::kable()
+```
+
+
+Here is a summary data table including the maximum value, minimum value and the count number in four different obesity_level categories
+
+# 4. Create another categorical variable named “smoke_gas_exposure” 
+
+It should summarizes “Second Hand Smoke” and “Gas Stove.” The variable should have four categories in total.
+
+
+```{r check for the output }
+# look into the output
+unique(comptable$smoke)
+unique(comptable$gasstove)
+```
+
+ Both `smoke` and `gasstove` are binary which means there are 4 kinds of combinations, so name each category as following. 
+ 
+```{r smoke_gas_category}
+# create a new category
+comptable[, smoke_gas_exposure :=fifelse(smoke == 1 &gasstove ==1 ,"both",fifelse(smoke == 1 &gasstove == 0 ,"smoke_only",fifelse(smoke == 0 &gasstove ==1,"gas_only","neither")))]
+```
+
+
+# 5. Create four summary tables 
+
+showing the average (or proportion, if binary) and sd of “Forced expiratory volume in 1 second (ml)” and asthma indicator by town, sex, obesity level, and “smoke_gas_exposure.”
+
+
+## Summary by different levels 
+
+### by townname
+
+```{r summary by townname}
+comptable %>%
+  group_by(townname) %>%
+  summarise(
+    count=n(), 
+    mean.fev = mean(fev,na.rm= TRUE),
+            sd.fev = sd(fev,na.rm = TRUE))%>%
+    knitr::kable()
+```
+
+#### Conclusion 
+
+
+There are 100 observations each town. Town Alpine has the largest `fev` mean value and `fev` in Lake Elsinore  varies the most. 
+
+
+### by sex
+
+Count the proportion of `male` and `female`
+
+```{r summary by sex}
+comptable %>%
+  group_by(male) %>%
+  summarise(
+    count=n(), 
+    mean.fev = mean(fev,na.rm= TRUE),
+            sd.fev = sd(fev,na.rm = TRUE)) %>%
+  mutate(proportion = count / sum(count))%>%
+    knitr::kable()
+```
+
+#### Conclusion 
+
+Here the Sex level is binary. 
+
+The proportion of sex in this data is about half-half and the mean `fev` value among male is larger than it among female, `fev` values among female varies more.  
+
+
+
+
+
+### by obesity level
+
+```{r summary by obesity_level}
+comptable %>%
+  group_by(obesity_level) %>%
+  summarise(
+    count=n(), 
+    mean.fev = mean(fev,na.rm= TRUE),
+    sd.fev = sd(fev,na.rm = TRUE))%>%
+    knitr::kable()
+```
+
+#### Conclusion 
+
+- Most observations are belong to `normal` obesity_level.
+- The Mean value of `fev` is larger among people with larger `bmi`.
+
+
+### by smoke_gas_expore
+
+```{r summary by smoke_gas_exposure}
+comptable %>%
+  group_by(smoke_gas_exposure) %>%
+  summarise(
+    count=n(), 
+    mean.fev = mean(fev,na.rm= TRUE),
+    sd.fev = sd(fev,na.rm = TRUE)) %>%
+    mutate(proportion = count / sum(count))%>%
+    knitr::kable()
+```
+
+#### Conclusion 
+
+Only 3% of the samples only smoke without exposing to gas, and the mean `fev`value is the smallest among people either smoke nor are exposed to gas
+
+
+# **EDA**
+
+The primary questions of interest are: \
+1. What is the association between BMI and FEV (forced expiratory volume)? \
+2. What is the association between smoke and gas exposure and FEV? \
+3. What is the association between PM2.5 exposure and FEV? \
+
+Follow the EDA checklist from week 3 and the previous assignment. Be sure to focus on the key variables. Visualization Create the following figures and interpret them. Be sure to include easily understandable axes, titles, and legends. \
+
+
+
+
+### (1). Check the dimensions, headers, footers. How many columns, rows are there?
+
+```{r check dataset }
+dim(comptable)
+head(comptable)
+tail(comptable)
+```
+
+The dimension remained 1200 * (27+23-1+2),which is correct. 
+The header and footer of this data set have been checked.
+
+### (2). Take a look at the variables
+
+```{r check variable type}
+str(comptable)
+```
+
+All variables are stored in correct data type.
+
+
+### (3).Take a closer look at the key variables.
+
+
+```{r check for key variable }
+summary(comptable$bmi)
+summary(comptable$fev)
+summary(comptable$smoke)
+summary(comptable$gasstove)
+summary(comptable$pm25_mass)
+```
+
+There is not any implausible value or missing value . 
+                                                                                                                    
+
+# Visualization
+
+visualization
+
+```{r library for visualization }
+library(ggpubr)
+library(ggplot2)
+library(leaflet)
+```
+
+## 1. Facet plot showing scatterplots with regression lines of BMI vs FEV by “townname”.
+
+```{r facet plot bmi vs fev}
+
+comptable %>% 
+  ggplot(aes(bmi, fev)) + 
+  geom_point(aes(color = townname)) + 
+  geom_smooth(method = lm,formula = y~x,
+              aes(color = townname), 
+              se = FALSE,)+stat_cor(method = "pearson", label.x = 10, label.y = 600,size=3)+facet_wrap(~townname) + ggtitle("fev_vs_bmi in different towns")
+```
+#### Conclusion 
+
+From these figures, it can be seen that `fev` and `bmi` seems like positively correlated which means `fev` values is increasing with the increasing `bmi`. 
+
+Use pearson method to calculate the correlation coefficient (R)  and P value
+
+**correlation coefficient (R)**
+
+- 0.8-1.0 very strong correlation
+- 0.6-0.8 Strong correlation
+- 0.4-0.6 Moderately correlated
+- 0.2-0.4 Weak correlation
+- 0.0-0.2 Very weak or no correlation
+
+**P vlaue **
+
+Generally if the p value is less than 0.05, we consider it as significant.P value is very important because if it is not significant, the correlation coefficient is useless no matter how high it is since it may only be caused by accidental factors.
+
+The p value in each town is less than 0.05, so it may be safe to say it is very likely `fev` and `bmi` are positively correlated. 
+
+
+
+## 2. Stacked histograms of FEV by BMI category and FEV by smoke/gas exposure. Use different color schemes than the ggplot default.
+
+
+```{r histogram fev vs obesity_level}
+ggplot(comptable, aes(x=fev, fill=obesity_level)) +
+  geom_histogram(color="red",bins=20)+ scale_fill_manual(values = c("lightblue",
+    "purple", "green", "yellow"))+ggtitle("Stacked histograms of FEV by BMI category")
+```
+#### Conclusion 
+
+This figure shows that most observations are belong to Normal `obesity_level`. 
+It looks like it is normal distributed, so use **Shapiro-Wilk normality test** to check the normality of the data. 
+
+```{r normal distribution test}
+shapiro.test(subset(comptable, obesity_level == "normal")$fev)
+
+```
+
+The null hypothesis for Shapiro-Wilk test is that your data is normal.
+Since the p value is less than 0.05, then you reject the null hypothesis at 5% significance and conclude that your data is non-normal.
+
+This figure also shows that  `fev` value of most underweight people is smaller than overweight and obese people in this data set.
+
+
+```{r histograms of fev by smoke_gas_exposure}
+ggplot(comptable, aes(x=fev, fill=smoke_gas_exposure)) +
+  geom_histogram(color="red",bins=20)+scale_fill_manual(values = c("lightpink",
+    "grey", "lightgreen", "lightyellow"))+ggtitle("Stacked histograms of FEV by smoke_gas_exposure")
+```
+#### Conclusion 
+
+This plot shows that most observations are exposed to gas and smoke or only exposed to smoke, very few of them only smoke without exposed to gas. 
+
+## 3. Barchart of BMI by smoke/gas exposure
+
+```{r barchart smoke_gas_exposure}
+ggplot(comptable) + 
+  geom_bar(mapping = aes(x = obesity_level, fill = smoke_gas_exposure))+scale_fill_viridis_d()+ggtitle("Barchart of BMI by smoke/gas exposure")
+```
+#### Conclusion 
+
+From this figure, it is clear that the proportion of different categories of `smoke_gas_exposure` is very similar among all `obesity_level`. The proportion of people who do not smoke and are only exposed to gas is higher in all obesity_level categories, and the proportion of people who only smoke is the lowest in all obesity_levels.
+
+
+## 4. Statistical summary graphs of FEV by BMI and FEV by smoke/gas exposure category.
+
+```{r stastical summary fev vs bmi}
+comptable %>%
+  ggplot()+
+  stat_summary(mapping = aes(x=reorder(obesity_level,fev,FUN=median),y=fev,color = obesity_level), fun.min = min,
+    fun.max = max,
+    fun = median) + ggtitle("stastical summary plot  fev vs bmi")
+```
+#### Conclusion 
+
+
+The median `fev` value is increasing with the increasing `bmi`.
+
+
+```{r stastical summary fev vs smoke}
+comptable %>%
+  ggplot()+
+  stat_summary(mapping = aes(x=smoke_gas_exposure,y=fev,color = smoke_gas_exposure,), fun.min = min,
+    fun.max = max,
+    fun = median)+ ggtitle("stastical summary fev vs smoke/gas_exposure")
+```
+
+
+#### Conclusion
+
+The median `fev` value is about 2000 for each `smoke_gas_exposure` group.
+
+
+## 5. A leaflet map showing the concentrations of PM2.5 mass in each of the CHS communities.
+
+
+```{r leaflet map}}
+pal <- colorFactor(
+  palette = 'plasma',
+  domain = reg$townname
+)
+leaflet(reg) %>% 
+  addProviderTiles('CartoDB.Positron') %>% 
+  addCircles(lat = reg$lat, lng = reg$lon, opacity = 1, fillOpacity = 1, radius = 40,color = ~pal(townname)) %>%
+  addLegend("topright", pal = colorFactor(
+    palette = "plasma", reg$pm25_mass),values = reg$pm25_mass,opacity = 1)
+```
+
+#### Conclusion
+
+This map shows that ciry with a higher concentration of  `pm25_mass`is mainly located in urban areas with developed traffic routes. The `pm25_mass` values are lower in cities far away from Los Angeles.
+
+
+## 6. Choose a visualization to examine whether PM2.5 mass is associated with FEV.
+
+
+
+```{r visualization pm25_mass vs fev}
+comptable %>%
+  ggplot(mapping = aes(pm25_mass, fev, alpha = 0.5)) + 
+  geom_point(mapping = aes(color = townname)) + geom_smooth(
+method = lm, formula = y ~ x)+stat_cor(method = "pearson", label.x = 3, label.y = 30)+ ggtitle("Visualization of pm25_mass vs fev")
+```
+#### Conclusion
+
+This figure shows that although there is a slight decrease of `fev` with the increasing `pm25_mass`, the p value is greater than 0.05, so the correlation coefficient is not statistically significant.
