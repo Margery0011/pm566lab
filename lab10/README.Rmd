@@ -1,0 +1,211 @@
+---
+title: "README"
+author: "yutian"
+date: "11/2/2022"
+output: 
+  github_document:
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(repos = c(CRAN = "https://cran.rstudio.com"))
+```
+
+
+
+## SET UP
+
+```{r}
+if(!require(RSQLite)) install.packages("RSQLite")
+if(!require(DBI)) install.packages("DBI")
+library(RSQLite)
+library(DBI)
+```
+
+```{r}
+# Initialize a temporary in memory database
+con <- dbConnect(SQLite(), ":memory:")
+
+# Download tables
+actor <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/actor.csv")
+rental <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/rental.csv")
+customer <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/customer.csv")
+payment <- read.csv("https://raw.githubusercontent.com/ivanceras/sakila/master/csv-sakila-db/payment_p2007_01.csv")
+
+# Copy data.frames to database
+dbWriteTable(con, "actor", actor)
+dbWriteTable(con, "rental", rental)
+dbWriteTable(con, "customer", customer)
+dbWriteTable(con, "payment", payment)
+```
+
+```{sql,connection = con, output.var = "x1"}
+PRAGMA table_info(actor)
+```
+
+```{r}
+dbGetQuery(con, "PRAGMA table_info(actor)")
+```
+
+```{sql,connection = con}
+PRAGMA table_info(actor)
+```
+
+### E1 , R 
+
+```{r}
+dbGetQuery(con,"SELECT actor_id, first_name,last_name
+FROM actor
+ORDER by last_name, first_name
+LIMIT 5")
+```
+###E1, SQL 
+
+```{sql,connection = con}
+SELECT actor_id, first_name,last_name
+FROM actor
+ORDER by last_name, first_name
+```
+
+
+
+### E2
+
+
+
+
+
+```{sql,connection = con}
+SELECT actor_id, first_name,last_name
+FROM actor
+WHERE last_name IN ('WILLIAMS', 'DAVIS')
+ORDER by last_name
+```
+
+### E3 
+
+```{r}
+dbGetQuery(con,"
+SELECT DISTINCT customer_id,rental_date
+FROM rental
+WHERE date(rental_date) = '2005-07-05'
+           ")
+```
+
+
+```{sql,connection = con}
+SELECT  customer_id,
+COUNT(*) AS N
+FROM rental
+WHERE date(rental_date) = '2005-07-05'
+GROUP BY customer_id
+
+```
+
+### E4
+
+```{sql,connection = con}
+SELECT *
+FROM payment
+WHERE amount IN (1.99, 7.99, 9.99)
+LIMIT 10
+```
+
+```{r}
+dbGetQuery(con,"
+           SELECT * 
+           FROM payment
+           WHERE amount > 5 
+           LIMIT 10")
+```
+
+```{r}
+dbGetQuery(con,"
+           SELECT * 
+           FROM payment
+           WHERE (amount > 5) AND (amount <8)
+           LIMIT 10")
+```
+
+### E5
+
+```{sql,connection = con}
+SELECT c.customer_id,p.amount,c.first_name,c.last_name
+FROM payment AS p
+  INNER JOIN customer AS c
+ON c.customer_id = p.customer_id
+WHERE c.last_name = 'DAVIS'
+
+```
+### E6
+
+```{r}
+dbGetQuery(con,"
+         SELECT customer_id,
+         COUNT(*) AS count
+         FROM rental
+         GROUP BY customer_id
+         LIMIT 8
+         ")
+```
+```{r}
+dbGetQuery(con,"
+         SELECT customer_id,
+         COUNT(*) AS count
+         FROM rental
+         GROUP BY customer_id
+         ORDER BY count DESC
+         LIMIT 8
+         ")
+```
+
+
+```{r}
+dbGetQuery(con,"
+         SELECT customer_id,
+         COUNT(*) AS count
+         FROM rental
+         GROUP BY customer_id
+         HAVING count >= 40
+         ORDER BY count DESC
+         LIMIT 8
+         ")
+```
+### E7
+
+```{r}
+dbGetQuery(con,"
+         SELECT MAX(amount) AS maxpayment,
+                MIN(amount) AS minpayment,
+                AVG(amount) AS avgpayment,
+                SUM(amount) AS sumpayment
+FROM payment")
+```
+```{r}
+dbGetQuery(con,"
+         SELECT MAX(amount) AS maxpayment,
+                MIN(amount) AS minpayment,
+                AVG(amount) AS avgpayment,
+                SUM(amount) AS sumpayment
+FROM payment
+GROUP BY customer_id
+LIMIT 5")
+```
+```{r}
+dbGetQuery(con,"
+         SELECT COUNT(*) AS N,
+         MAX(amount) AS maxpayment,
+                MIN(amount) AS minpayment,
+                AVG(amount) AS avgpayment,
+                SUM(amount) AS sumpayment
+FROM payment
+GROUP BY customer_id
+HAVING N >5")
+```
+
+
+```{r}
+#clean up
+dbDisconnect(con)
+```
