@@ -197,9 +197,10 @@ pmb %>%
     count(token, sort = TRUE) %>%
   bind_tf_idf(token, term, n) %>%
   arrange(term, desc(tf_idf)) %>%
+  top_n(5, tf_idf) %>%
 knitr::kable()
 
 ```
 
 IN question 1, the top 5 common words are covid, patients, cancer, prostate and disease
-After giving the weigh to the words, the tokens are covid, pandemic, coronavirus, sars and cov which seems like making more sense since the previous top 5 words are more common words in all biomedical fields.   
+After giving the weigh to the words, the tokens are covid, pandemic, coronavirus, sars and cov which  means word "patient","prostate", and "disease" are been replaced. It seems like making more sense since them are more common words in all bio medical fields instead of this specific filed.    
